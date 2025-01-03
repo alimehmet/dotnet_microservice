@@ -1,0 +1,155 @@
+﻿@{
+    ViewData["Title"] = "Currency Exchange Rates";
+}
+<div class="container">
+    <h2>Exchange Rates</h2>
+    <label>*max date range is 01/11/2024 - 02/01/2025</label>
+    <br>
+    <div>
+        <label for="startDate">Start Date:</label>
+        <input type="date" id="startDate" />
+        <label for="endDate">End Date:</label>
+        <input type="date" id="endDate" />
+        <label for="currency">Currency:</label>
+        <select id="currency">
+        </select>
+        <button id="searchBtn">Search</button>
+    </div>
+    <div id="chart"></div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<script>
+    $(document).ready(function () {
+        function getCurrencies() {
+            $.ajax({
+                url: "http://localhost:5002/api/businessapi/currencies",
+                type: "GET",
+                success: function (currencies) {
+                    const currencyDropdown = $("#currency");
+                    currencyDropdown.empty();
+                    currencies.forEach((cur) => {
+                        currencyDropdown.append(`<option value="${cur}">${cur}</option>`);
+                    });
+                },
+                error: function (err) {
+                    console.error("Error fetching currencies:", err);
+                    alert("Failed to fetch currencies.");
+                },
+            });
+        }
+
+        getCurrencies();
+
+        $("#searchBtn").on("click", function () {
+            const startDate = $("#startDate").val();
+            const endDate = $("#endDate").val();
+            const selectedCurrency = $("#currency").val();
+
+            if (!startDate || !endDate) {
+                alert("Please select both start and end dates.");
+                return;
+            }
+
+            $.ajax({
+                url: "http://localhost:5002/api/businessapi/exchangeRates",
+                type: "GET",
+                data: { startDate, endDate },
+                success: function (data) {
+                    drawChart(data, selectedCurrency);
+                },
+                error: function (err) {
+                    console.error("Error fetching exchange rates:", err);
+                    alert("Failed to fetch exchange rates.");
+                },
+            });
+        });
+
+       function drawChart(data, selectedCurrency) {
+            d3.select("#chart").selectAll("*").remove();
+
+            const parseDate = d3.timeParse("%Y-%m-%dT%H:%M:%S%Z");
+            const exchangeRates = data
+                .filter((d) => d.currency === selectedCurrency)
+                .map((d) => ({
+                    date: parseDate(d.date),
+                    rate: +d.rate,
+                }));
+
+            exchangeRates.sort((a, b) => a.date - b.date);
+
+            const width = 1200;
+            const height = 500;
+            const margin = { top: 50, right: 50, bottom: 100, left: 70 };
+
+            const xDomain = d3.extent(exchangeRates, (d) => d.date);
+            const yDomain = [
+                d3.min(exchangeRates, (d) => d.rate) * 0.99, 
+                d3.max(exchangeRates, (d) => d.rate) * 1.01
+            ];
+
+            const xScale = d3.scaleTime()
+                .domain(xDomain)
+                .range([margin.left, width - margin.right]);
+
+            const yScale = d3.scaleLinear()
+                .domain(yDomain)
+                .range([height - margin.bottom, margin.top]);
+
+            const svg = d3.select("#chart")
+                .append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            const xAxis = d3.axisBottom(xScale)
+                .ticks(d3.timeDay.every(5))
+                .tickFormat(d3.timeFormat("%d-%m-%Y"));
+
+            const yAxis = d3.axisLeft(yScale)
+                .ticks(15); 
+
+            svg.append("g")
+                .attr("transform", `translate(${margin.left}, 0)`)
+                .call(yAxis);
+
+            svg.append("g")
+                .attr("transform", `translate(0, ${height - margin.bottom})`)
+                .call(xAxis)
+                .selectAll("text")
+                .attr("transform", "rotate(-45)")
+                .style("text-anchor", "end");
+
+            const line = d3.line()
+                .x((d) => xScale(d.date))
+                .y((d) => yScale(d.rate));
+
+            svg.append("path")
+                .datum(exchangeRates)
+                .attr("fill", "none")
+                .attr("stroke", "steelblue")
+                .attr("stroke-width", 2)
+                .attr("d", line);
+
+            svg.selectAll(".dot")
+                .data(exchangeRates)
+                .enter()
+                .append("circle")
+                .attr("cx", (d) => xScale(d.date))
+                .attr("cy", (d) => yScale(d.rate))
+                .attr("r", 4)
+                .attr("fill", "red");
+
+            svg.selectAll(".label")
+                .data(exchangeRates)
+                .enter()
+                .append("text")
+                .attr("x", (d) => xScale(d.date) + 5)
+                .attr("y", (d) => yScale(d.rate) - 5)
+                .text((d) => d.rate.toFixed(3))
+                .attr("font-size", "10px")
+                .attr("fill", "black");
+        }
+    });
+</script>
